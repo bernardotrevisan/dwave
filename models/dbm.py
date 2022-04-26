@@ -40,7 +40,7 @@ class DBM:
         self.m2 = self.o2 + np.zeros((self.batch_size, self.hidden))
         self.m3 = self.o3 + np.zeros((self.batch_size, self.output))
 
-    def PCD(self):
+    def train(self):
         rbm = RBM(number_visibles = self.input + self.output, 
                     number_hiddens = self.hidden, 
                     initial_weights = np.vstack((self.W1, self.W2.T)), 
@@ -49,7 +49,37 @@ class DBM:
                     initial_visible_offsets = np.hstack((self.o1, self.o3)), 
                     initial_hidden_offsets = self.o2)
         
-        sampler = RBM_SAMPLER.PersistentGibbsSampler(self.rbm, self.batch_size)
+        sampler = PersistentGibbsSampler(rbm, self.batch_size)
+
+        # Set AIS betas / inv. temps for AIS
+        a = numx.linspace(0.0, 0.5, 100+1)
+        a = a[0:a.shape[0]-1]
+        b = numx.linspace(0.5, 0.9, 800+1)
+        b = b[0:b.shape[0]-1]
+        c = numx.linspace(0.9, 1.0, 2000)
+        betas = numx.hstack((a,b,c))
+
+        np.random.seed(10)
+
+        for epoch in range(0, self.epochs + 1) :
+            # update model
+            for i in range(0, self.train_set.shape[0], self.batch_size):
+                rbm.train(data = self.train_set[i:i + self.batch_size, :],
+                                                        epsilon = self.epsilon,
+                                                        k = [self.k_pos, self.k_neg])
+                                                        
+    # estimate every 10k epochs
+    if epoch % 10000 == 0:
+
+        print("Epoche: ",epoch)
+        logZ, logZ_up, logZ_down = ESTIMATOR.partition_function_AIS(trainer.model, betas=betas)
+        train_LL = numx.mean(ESTIMATOR.LL_lower_bound(trainer.model, train_set, logZ))
+        print("AIS  LL: ",2**(v11+1)* train_LL)
+
+        logZ = ESTIMATOR.partition_function_exact(trainer.model)
+        train_LL = numx.mean(ESTIMATOR.LL_exact(trainer.model, train_set, logZ))
+        print("True LL: ",2**(v11+1)* train_LL)
+        print()
 
 
     def sigmoid(self, input):
@@ -78,8 +108,17 @@ class RBM:
                 initial_visible_offsets,
                 initial_hidden_offsets):
 
+        self.input_dim = number_visibles
+        self.output_dim = number_hiddens
+
         self.data_mean = 0.5 * np.ones((1, number_visibles), np.float64)
         self.data_std = np.ones((1, number_visibles), np.float64)
+
+        self.w = np.array(initial_weights, dtype=np.float64)
+
+        self.bv = np.array(initial_visible_bias, dtype=np.float64)
+
+        self.bh = np.array(initial_hidden_bias, dtype=np.float64)
 
         self.ov = np.zeros((1, number_visibles))
         self.ov += initial_visible_offsets.reshape(1, number_visibles)
@@ -96,7 +135,30 @@ class RBM:
         save_mean = np.clip(np.float64(self.data_mean), 0.00001, 0.99999).reshape(1, self.data_mean.shape[1])
         return np.log(save_mean) - np.log(1.0 - save_mean)
 
-class PersistentGibbsSampler():
+    def probability_h_given_v(self, v):
+        temp_sigma = self.sigma
+        activation = self.bh + np.dot((v - self.ov) / (temp_sigma ** 2), self.w)
+        return self.sigmoid(activation)
+
+    def probability_v_given_h(self, h):
+        activation = np.dot(h - self.oh, self.w.T) + self.bv + self.ov
+
+        return activation
+
+    def sample_h(self, h):
+        x = self.temp  # numx.log(numx.exp(h)-1.0)
+        activation = x + np.random.randn(x.shape[0], x.shape[1]) * sigmoid(x)
+        return np.clip(activation, 0.0, self.max_act)
+
+    def sample_v(self, v):
+        x = self.temp  # numx.log(numx.exp(h)-1.0)
+        activation = v + np.random.randn(x.shape[0], x.shape[1]) * sigmoid(x)
+        return np.clip(activation, 0.0, self.max_act)
+    
+    def sigmoid(self, input):
+        return 2.0 * np.arctanh(2.0 * input - 1.0)
+
+class PersistentGibbsSampler:
     def __init__(self, model, num_chains):
         # Check and set the model
         if not hasattr(model, 'probability_h_given_v'):
@@ -112,62 +174,38 @@ class PersistentGibbsSampler():
         self.model = model
 
         # Initialize persistent Markov chains to Gaussian random samples.
-        if numx.isscalar(num_chains):
-            self.chains = model.sample_v(numx.random.randn(num_chains, model.input_dim) * 0.01)
+        if np.isscalar(num_chains):
+            self.chains = model.sample_v(np.random.randn(num_chains, model.input_dim) * 0.01)
         else:
             raise ValueError("Number of chains needs to be an integer or None.")
 
     def sample(self,
                num_samples,
-               k=1,
-               betas=None,
-               ret_states=True):
-        """ Performs k steps persistent Gibbs-sampling.
-
-        :param num_samples: The number of samples to generate.
-                            .. Note:: Optimal performance is achieved if the number of samples and the number of chains
-                            equal the batch_size.
-        :type num_samples: int, numpy array
-
-        :param k: The number of Gibbs sampling steps.
-        :type k: int
-
-        :param betas: Inverse temperature to sample from.(energy based models)
-        :type betas: None, float, numpy array [num_betas,1]
-
-        :param ret_states: If False returns the visible probabilities instead of the states.
-        :type ret_states: bool
-
-        :return: The visible samples of the Markov chains.
-        :rtype: numpy array [num samples, input dimension]
-        """
+               k=1):
         # Sample k times
         for _ in range(k):
-            hid = self.model.probability_h_given_v(self.chains, betas)
-            hid = self.model.sample_h(hid, betas)
-            vis = self.model.probability_v_given_h(hid, betas)
-            self.chains = self.model.sample_v(vis, betas)
-        if ret_states:
-            samples = self.chains
-        else:
-            samples = vis
+            hid = self.model.probability_h_given_v(self.chains)
+            hid = self.model.sample_h(hid)
+            vis = self.model.probability_v_given_h(hid)
+            self.chains = self.model.sample_v(vis)
+        
+        samples = self.chains
 
         if num_samples == self.chains.shape[0]:
             return samples
         else:
             # If more samples than chains,
-            repeats = numx.int32(num_samples / self.chains.shape[0])
+            repeats = np.int32(num_samples / self.chains.shape[0])
 
             for _ in range(repeats):
 
                 # Sample k times
                 for u in range(k):
-                    hid = self.model.probability_h_given_v(self.chains, betas)
-                    hid = self.model.sample_h(hid, betas)
-                    vis = self.model.probability_v_given_h(hid, betas)
-                    self.chains = self.model.sample_v(vis, betas)
-                if ret_states:
-                    samples = numx.vstack([samples, self.chains])
-                else:
-                    samples = numx.vstack([samples, vis])
+                    hid = self.model.probability_h_given_v(self.chains)
+                    hid = self.model.sample_h(hid)
+                    vis = self.model.probability_v_given_h(hid)
+                    self.chains = self.model.sample_v(vis)
+                
+                samples = np.vstack([samples, self.chains])
+
             return samples[0:num_samples, :]
