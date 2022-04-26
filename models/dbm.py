@@ -79,6 +79,38 @@ class DBM:
             data[i, :] = np.random.randint(low=0, high=2, size=length)
         return data
 
+    def unnormalized_log_probability_x(self, x):
+        # Generate all possibel binary codes for h1 and h2
+        all_h1 = self.generate_binary_code(self.W2.shape[0], batch_size_exp=5)
+        all_h2 = self.generate_binary_code(self.W2.shape[1], batch_size_exp=5)
+        # Center variables
+        xtemp = x-self.o1
+        h1temp = all_h1-self.o2
+        h2temp = all_h2-self.o3
+        # Bias term
+        bias = np.dot(xtemp, self.b1.T)
+        # Both quadratic terms
+        part1 = np.exp(np.dot(np.dot(xtemp, self.W1) + self.b2, h1temp.T))
+        part2 = np.exp(np.dot(np.dot(h1temp, self.W2) + self.b3, h2temp.T))
+        # Dot product of all combination of all quadratic terms + bias
+        return bias + np.log(np.sum(np.dot(part1,part2), axis = 1).reshape(x.shape[0],1))
+
     def inverse_sigmoid(self, x):
         return 2.0 * np.arctanh(2.0 * x - 1.0)
+
+    def generate_binary_code(self, bit_length, batch_size_exp=None, batch_number=0):
+        # No batch size is given, all data is returned
+        if batch_size_exp is None:
+            batch_size_exp = bit_length
+        batch_size = 2 ** batch_size_exp
+        # Generate batch
+        bit_combinations = np.zeros((batch_size, bit_length))
+        for number in range(batch_size):
+            dividend = number + batch_number * batch_size
+            bit_index = 0
+            while dividend != 0:
+                bit_combinations[number, bit_index] = np.remainder(dividend, 2)
+                dividend = np.floor_divide(dividend, 2)
+                bit_index += 1
+        return bit_combinations
     

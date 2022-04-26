@@ -42,7 +42,8 @@ def partition_function_factorize_h(model,
     if batchsize_exponent == 'AUTO' or batchsize_exponent > 20:
         batchsize_exponent = np.min([model.output_dim, 12])
     batchsize = np.power(2, batchsize_exponent)
-    num_combinations = np.power(2, bit_length)
+    #num_combinations = 2 ** bit_length
+    num_combinations = 1024
 
     num_batches = num_combinations // batchsize
     log_prob_vv_all = np.zeros(num_combinations)
