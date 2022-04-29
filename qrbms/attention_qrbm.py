@@ -14,6 +14,7 @@ class AttentionQRBM:
 
     def train(self, train_data, epochs, learning_rate):
         for epoch in range(epochs):
+            error = 0
             datapoint_index = random.randrange(0, len(train_data))
             
             init_visible = train_data[datapoint_index]            
@@ -31,10 +32,10 @@ class AttentionQRBM:
             # Update hidden bias
             self.update_hidden_bias(init_hidden, curr_hidden, learning_rate)
             
-            error = self.error(init_visible[0][-21:], curr_visible[0][-21:])
+            error += self.error(init_visible[-21:], curr_visible[-21:])
             print("epoch: " + str(epoch) + " error: " + str(error))
             
-            return
+        return
     
     def update_weights(self, init_visible, curr_visible, init_hidden, curr_hidden, learning_rate):
         positive_gradient = np.outer(init_visible, init_hidden)
