@@ -2,12 +2,14 @@ import numpy as np
 import math
 
 class Data:
+    np.random.seed(42)
+
     def __init__(self, size, max_speed, w, h):
         self.size = size
         self.max_speed = max_speed
         self.w = w
         self.h = h
-        self.data = self.generate_data()
+        self.data = np.array(self.generate_data())
 
     # Generate data for the network
     def generate_data(self):

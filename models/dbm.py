@@ -8,12 +8,9 @@ class DBM:
 
     def __init__(self):
         # Set layer dimensions
-        self.input = 54 # input layer: 9 nodes per coord, 2 coords per loc, 3 locs
+        self.input = 42 # input layer: 7 nodes per coord, 2 coords per loc, 3 locs
         self.hidden = 64 # attention allocation layer: 4 attention levels, 3 characters, 64 combinations
-        self.output = 18 # output (direction of movement) layer: 9 nodes per coord, 2 coords per loc, 1 locs
-
-        # Create training set
-        self.train_set = self.generate_bars_and_stripes(self.input, 100)
+        self.output = 14 # output (direction of movement) layer: 7 nodes per coord, 2 coords per loc, 1 locs
 
         # Training info
         self.batch_size = self.train_set.shape[0]
@@ -72,12 +69,6 @@ class DBM:
                 train_LL = np.mean(estimator_mod.LL_exact(trainer.model, self.train_set, logZ))
                 print("True LL: ",2**(np.sqrt(self.input) + 1)* train_LL)
                 print()
-        
-    def generate_bars_and_stripes(self, length, num_samples):
-        data = np.zeros((num_samples, length))
-        for i in range(num_samples):
-            data[i, :] = np.random.randint(low=0, high=2, size=length)
-        return data
 
     def unnormalized_log_probability_x(self, x):
         # Generate all possibel binary codes for h1 and h2
